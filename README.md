@@ -8,4 +8,6 @@ Fill This
 
 2. Add update functionality to update the timeout of the key on reinsert
 
-3. Benchmarking
+3. Add Range functionality to loop over the keys similar to sync.Map
+
+4. Benchmarking
