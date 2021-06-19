@@ -1,4 +1,6 @@
 package timeoutmap
+
+/*
 package timeoutmap // import "github.com/sperahd/timeout-map"
 
 Package timeoutmap provides a data structure on top of the general map with
@@ -33,4 +35,4 @@ func (tm TimeoutMap) GetValue(key interface{}) (value interface{}, ok bool)
 
 func (tm *TimeoutMap) Init(hint int, timeout time.Duration)
     Initializes TimeoutMap with a default timeout for all keys
-
+*/
