@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-func check(got, want interface{}) bool {
+func localCheck(got, want interface{}) bool {
 	switch got.(type) {
 	case string:
 		if got != want {
@@ -25,10 +25,10 @@ func TestDefaultTimeout(t *testing.T) {
 
 	want := value
 	got, _ := tm.GetValue(key)
-	if !check(got, want) {
+	if !localCheck(got, want) {
 		panic(fmt.Errorf("failed, got: %v, want: %v", got, want))
 	}
-	time.Sleep(1 * time.Second)
+	time.Sleep(3 * time.Second)
 
 	// timeout case, value should not exist
 	if _, ok := tm.GetValue("id1"); ok {
