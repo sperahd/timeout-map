@@ -1,9 +1,12 @@
 package timeoutmap
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
+
+	"go.uber.org/goleak"
 )
 
 func localCheck(got, want interface{}) bool {
@@ -17,8 +20,10 @@ func localCheck(got, want interface{}) bool {
 }
 
 func TestDefaultTimeout(t *testing.T) {
+	defer goleak.VerifyNone(t)
 	tm := &TimeoutMap{}
-	tm.Init(0, time.Duration(2*time.Second))
+	ctx, cancelFunc := context.WithCancel(context.Background())
+	tm.Init(ctx, 0, time.Duration(2*time.Second))
 	key := "id1"
 	value := "value1"
 	tm.AddKV(key, value, 0)
@@ -38,4 +43,6 @@ func TestDefaultTimeout(t *testing.T) {
 	if Len(*tm) != 0 {
 		panic("length should be zero")
 	}
+	cancelFunc()
+	time.Sleep(5 * time.Second)
 }

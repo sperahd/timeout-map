@@ -4,6 +4,7 @@ package timeoutmap
 
 import (
 	"container/heap"
+	"context"
 	"fmt"
 	"time"
 )
@@ -14,15 +15,17 @@ type TimeoutMap struct {
 	internalMap  map[interface{}]interface{}
 	AbsTimeoutPQ durationHeap
 	timeout      time.Duration
+	ctx          context.Context
 }
 
 //Initializes TimeoutMap with a default timeout for all keys
-func (tm *TimeoutMap) Init(hint int, timeout time.Duration) {
+func (tm *TimeoutMap) Init(ctx context.Context, hint int, timeout time.Duration) {
 	tm.internalMap = make(map[interface{}]interface{}, hint)
 	tm.AbsTimeoutPQ = make(durationHeap, 0)
 	heap.Init(&tm.AbsTimeoutPQ)
 	tm.timeout = timeout
-	go tm.timeoutHandler()
+	tm.ctx = ctx
+	go tm.process()
 	return
 }
 
@@ -63,18 +66,33 @@ func Len(tm TimeoutMap) int {
 }
 
 func (tm *TimeoutMap) timeoutHandler() {
-	for _ = range time.Tick(1 * time.Millisecond) {
-		for {
-			now := time.Now().UnixNano() / int64(time.Millisecond)
-			item := tm.AbsTimeoutPQ.Peek()
-			if item == nil {
-				continue
-			}
-			if item.(*durationItem).priority/int64(time.Millisecond) < now {
-				fmt.Println("deleting")
-				heap.Pop(&tm.AbsTimeoutPQ)
-				delete(tm.internalMap, item.(*durationItem).value)
-			}
+	for {
+		now := time.Now().UnixNano() / int64(time.Millisecond)
+		item := tm.AbsTimeoutPQ.Peek()
+		if item == nil {
+			break
+		}
+		if item.(*durationItem).priority/int64(time.Millisecond) < now {
+			fmt.Println("deleting")
+			heap.Pop(&tm.AbsTimeoutPQ)
+			delete(tm.internalMap, item.(*durationItem).value)
+		} else {
+			break
+		}
+
+	}
+}
+
+func (tm *TimeoutMap) process() {
+	ticker := time.NewTicker(1 * time.Millisecond)
+	defer ticker.Stop()
+loop:
+	for {
+		select {
+		case <-ticker.C:
+			tm.timeoutHandler()
+		case <-tm.ctx.Done():
+			break loop
 		}
 	}
 }
