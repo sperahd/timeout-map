@@ -4,25 +4,34 @@ package timeoutmap
 
 import (
 	"container/heap"
+	"context"
 	"fmt"
+	"sync"
 	"time"
 )
 
 //granularity of timeouts is in milliseconds i.e.
 //items will be removed withing milliseconds of expiry
 type TimeoutMap struct {
-	internalMap  map[interface{}]interface{}
-	AbsTimeoutPQ durationHeap
+	internalMap  *sync.Map
+	AbsTimeoutPQ PQ
 	timeout      time.Duration
+	ctx          context.Context
+	pqMutex      *sync.Mutex
+	wg           *sync.WaitGroup
 }
 
 //Initializes TimeoutMap with a default timeout for all keys
-func (tm *TimeoutMap) Init(hint int, timeout time.Duration) {
-	tm.internalMap = make(map[interface{}]interface{}, hint)
-	tm.AbsTimeoutPQ = make(durationHeap, 0)
+func (tm *TimeoutMap) Init(ctx context.Context, hint int, timeout time.Duration, wg *sync.WaitGroup) {
+	tm.internalMap = new(sync.Map)
+	tm.AbsTimeoutPQ = make(PQ, 0)
 	heap.Init(&tm.AbsTimeoutPQ)
 	tm.timeout = timeout
-	go tm.timeoutHandler()
+	tm.ctx = ctx
+	tm.pqMutex = new(sync.Mutex)
+	tm.wg = wg
+	tm.wg.Add(1)
+	go tm.process()
 	return
 }
 
@@ -30,51 +39,78 @@ func (tm *TimeoutMap) Init(hint int, timeout time.Duration) {
 //timeout is associated with the key post which the key is removed from the map
 //if timeout is 0 then the default timeout is used
 //if key already exists then the value is updated and timeout is renewed
-func (tm *TimeoutMap) AddKV(key interface{}, value interface{}, timeout time.Duration) {
-	tm.internalMap[key] = value
+func (tm *TimeoutMap) Store(key interface{}, value interface{}, timeout time.Duration) {
+
+	// TODO: Update this to update the timeout of the existing
+	// item if it exists
+	// Will need update priority API in the pq implementation
+	tm.internalMap.Store(key, value)
 	if timeout == 0 {
 		timeout = tm.timeout
 	}
 	now := time.Now().UnixNano()
-	item := &durationItem{
+	item := &HeapItem{
 		value:    key,
 		priority: int64(tm.timeout) + now,
 	}
+	tm.pqMutex.Lock()
+	defer tm.pqMutex.Unlock()
 	heap.Push(&tm.AbsTimeoutPQ, item)
 }
 
 //returns value if it exists in the map
 //else returns nil
-func (tm TimeoutMap) GetValue(key interface{}) (value interface{}, ok bool) {
-	if val, ok := tm.internalMap[key]; ok {
-		return val, ok
-	}
-	return nil, false
+func (tm *TimeoutMap) Load(key interface{}) (value interface{}, ok bool) {
+	return tm.internalMap.Load(key)
 }
 
 //deletes the key from the map if it exists
-func Delete(tm *TimeoutMap, key interface{}) {
-	delete(tm.internalMap, key)
-}
-
-//returns the length of the map
-func Len(tm TimeoutMap) int {
-	return len(tm.internalMap)
+func (tm *TimeoutMap) Delete(key interface{}) {
+	tm.internalMap.Delete(key)
+	tm.pqMutex.Lock()
+	defer tm.pqMutex.Unlock()
+	tm.AbsTimeoutPQ.RemoveItem(key)
 }
 
 func (tm *TimeoutMap) timeoutHandler() {
-	for _ = range time.Tick(1 * time.Millisecond) {
-		for {
-			now := time.Now().UnixNano() / int64(time.Millisecond)
-			item := tm.AbsTimeoutPQ.Peek()
-			if item == nil {
-				continue
-			}
-			if item.(*durationItem).priority/int64(time.Millisecond) < now {
-				fmt.Println("deleting")
-				heap.Pop(&tm.AbsTimeoutPQ)
-				delete(tm.internalMap, item.(*durationItem).value)
-			}
+	for {
+		now := time.Now().UnixNano() / int64(time.Millisecond)
+		// check for existence of an item
+		tm.pqMutex.Lock()
+		item := tm.AbsTimeoutPQ.Peek()
+		tm.pqMutex.Unlock()
+		if item == nil {
+			break
+		}
+
+		// check for timeout expiry against current time
+		if now > item.(*HeapItem).priority/int64(time.Millisecond) {
+			fmt.Println("deleting")
+			tm.pqMutex.Lock()
+			heap.Pop(&tm.AbsTimeoutPQ)
+			tm.internalMap.Delete(item.(*HeapItem).value)
+			tm.AbsTimeoutPQ.RemoveItem(item)
+			tm.pqMutex.Unlock()
+		} else {
+			break
+		}
+
+	}
+}
+
+func (tm *TimeoutMap) process() {
+	ticker := time.NewTicker(1 * time.Millisecond)
+
+	// following is executed in lifo order
+	defer tm.wg.Done()
+	defer ticker.Stop()
+loop:
+	for {
+		select {
+		case <-ticker.C:
+			tm.timeoutHandler()
+		case <-tm.ctx.Done():
+			break loop
 		}
 	}
 }
