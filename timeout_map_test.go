@@ -3,6 +3,7 @@ package timeoutmap
 import (
 	"context"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -23,7 +24,9 @@ func TestDefaultTimeout(t *testing.T) {
 	defer goleak.VerifyNone(t)
 	tm := &TimeoutMap{}
 	ctx, cancelFunc := context.WithCancel(context.Background())
-	tm.Init(ctx, 0, time.Duration(2*time.Second))
+
+	wg := new(sync.WaitGroup)
+	tm.Init(ctx, 0, time.Duration(2*time.Second), wg)
 	key := "id1"
 	value := "value1"
 	tm.Store(key, value, 0)
@@ -41,5 +44,5 @@ func TestDefaultTimeout(t *testing.T) {
 	}
 
 	cancelFunc()
-	time.Sleep(5 * time.Second)
+	wg.Wait()
 }
