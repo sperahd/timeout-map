@@ -34,13 +34,13 @@ func TestDefaultTimeout(t *testing.T) {
 	want := value
 	got, _ := tm.Load(key)
 	if !localCheck(got, want) {
-		panic(fmt.Errorf("failed, got: %v, want: %v", got, want))
+		t.Fatal(fmt.Errorf("failed, got: %v, want: %v", got, want))
 	}
 	time.Sleep(3 * time.Second)
 
 	// timeout case, value should not exist
 	if _, ok := tm.Load("id1"); ok {
-		panic("failed, item not removed even after timeout")
+		t.Fatal("failed, item not removed even after timeout")
 	}
 
 	cancelFunc()
